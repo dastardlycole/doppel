@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">VibeCheck</string>
+    <string name="accessibility_service_description">Vibe Check Silent Observer monitors screen text to analyze your content consumption.</string>
+</resources>
