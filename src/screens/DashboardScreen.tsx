@@ -12,6 +12,7 @@ import {
 import { useSilentObserver } from '../hooks/useSilentObserver';
 import { cactusService } from '../services/CactusService';
 import { memoryService } from '../services/MemoryService';
+import { RAGService } from '../services/RAGService';
 // import Icon from 'react-native-vector-icons/MaterialCommunityIcons'; // Commented out until linked properly
 
 const { width } = Dimensions.get('window');
@@ -30,12 +31,25 @@ export const DashboardScreen = () => {
     const [isChecking, setIsChecking] = useState(false);
     const [vibeResult, setVibeResult] = useState<string | null>(null);
     const [logs, setLogs] = useState<string[]>([]);
+    const [posts, setPosts] = useState<any[]>([]); // Use any to avoid import cycle for now, or import Post
 
     useEffect(() => {
         if (lastObservation) {
             setLogs(prev => [`[OBSERVED] (${lastObservation.length} chars) ${lastObservation.substring(0, 150)}...`, ...prev].slice(0, 10));
+
+            // Refresh posts when new observation comes in
+            loadPosts();
         }
     }, [lastObservation]);
+
+    useEffect(() => {
+        loadPosts();
+    }, []);
+
+    const loadPosts = async () => {
+        const recent = await memoryService.getRecentPosts(10);
+        setPosts(recent);
+    };
 
     const handleVibeCheck = async () => {
         setIsChecking(true);
@@ -65,6 +79,103 @@ export const DashboardScreen = () => {
         } catch (e) {
             console.error(e);
             setVibeResult("Error connecting to the Oracle.");
+        } finally {
+            setIsChecking(false);
+        }
+    };
+
+    const handleTestRAG = async () => {
+        setIsChecking(true);
+        setLogs(prev => ["[TEST] Starting RAG Test...", ...prev]);
+        try {
+            // Check available models
+            const models = await cactusService.getAvailableModels();
+            console.log('Available Models:', JSON.stringify(models, null, 2));
+            setLogs(prev => [`[TEST] Models checked (see logs)`, ...prev]);
+
+            // Clear old data first
+            await RAGService.clearCorpus();
+            setLogs(prev => [`[TEST] Cleared old corpus data`, ...prev]);
+
+            // 1. Ingest Fake Data (Extreme Sports) - 10 entries
+            const fakeReels = [
+                {
+                    accountname: "redbull_cliffdiving",
+                    caption: "Insane jump from 27m!",
+                    Imagedescription: "A diver jumping off a cliff into the ocean",
+                    timedelta: 12000
+                },
+                {
+                    accountname: "snowboarding_daily",
+                    caption: "Fresh powder in the Alps",
+                    Imagedescription: "Snowboarder carving down a snowy mountain",
+                    timedelta: 8000
+                },
+                {
+                    accountname: "skydiving_extreme",
+                    caption: "Wingsuit flying through the mountains",
+                    Imagedescription: "Person in wingsuit gliding between mountain peaks",
+                    timedelta: 15000
+                },
+                {
+                    accountname: "surfing_bigwaves",
+                    caption: "Riding a 20ft wave in Hawaii",
+                    Imagedescription: "Surfer on a massive wave barrel",
+                    timedelta: 10000
+                },
+                {
+                    accountname: "mountainbiking_pro",
+                    caption: "Downhill at 60mph!",
+                    Imagedescription: "Mountain biker racing down a steep trail",
+                    timedelta: 9000
+                },
+                {
+                    accountname: "rockclimbing_daily",
+                    caption: "Free solo El Capitan",
+                    Imagedescription: "Climber scaling a vertical rock face without ropes",
+                    timedelta: 11000
+                },
+                {
+                    accountname: "bmx_tricks",
+                    caption: "Backflip over the mega ramp",
+                    Imagedescription: "BMX rider doing a backflip in mid-air",
+                    timedelta: 7000
+                },
+                {
+                    accountname: "skateboarding_legends",
+                    caption: "Kickflip down the 20 stair",
+                    Imagedescription: "Skateboarder performing a kickflip on stairs",
+                    timedelta: 6000
+                },
+                {
+                    accountname: "parkour_masters",
+                    caption: "Rooftop jumping in Dubai",
+                    Imagedescription: "Parkour athlete jumping between skyscrapers",
+                    timedelta: 13000
+                },
+                {
+                    accountname: "motocross_madness",
+                    caption: "Whip it over the triple jump",
+                    Imagedescription: "Motocross rider doing a whip trick in the air",
+                    timedelta: 14000
+                }
+            ];
+
+            for (const reel of fakeReels) {
+                await RAGService.saveReelData(reel);
+                setLogs(prev => [`[TEST] Saved reel from ${reel.accountname}`, ...prev]);
+            }
+
+            // 2. Query RAG
+            setLogs(prev => ["[TEST] Querying: 'What are my hobbies?'", ...prev]);
+            const answer = await RAGService.queryRAG("What are my hobbies based on the videos I watched?");
+
+            setLogs(prev => [`[TEST] Answer: ${answer}`, ...prev]);
+            setVibeResult(`RAG TEST RESULT:\n${answer}`);
+
+        } catch (error) {
+            console.error(error);
+            setLogs(prev => ["[TEST] Error: " + error, ...prev]);
         } finally {
             setIsChecking(false);
         }
@@ -112,6 +223,26 @@ export const DashboardScreen = () => {
                 </View>
             )}
 
+            {/* Recent Posts Debug View */}
+            <View style={styles.postsContainer}>
+                <Text style={styles.sectionTitle}>CAPTURED POSTS</Text>
+                <ScrollView style={styles.postsScroll}>
+                    {posts.map((post) => (
+                        <View key={post.id} style={styles.postCard}>
+                            <Text style={styles.postHeader}>
+                                <Text style={styles.platformTag}>[{post.platform}]</Text> {post.accountName || 'Unknown'}
+                            </Text>
+                            <Text style={styles.postCaption} numberOfLines={2}>{post.caption || 'No caption'}</Text>
+                            <Text style={styles.postMeta}>
+                                ❤️ {post.likes || '0'} • {new Date(post.timestamp).toLocaleTimeString()}
+                            </Text>
+                            <Text style={styles.debugText}>Type: {post.screenType}</Text>
+                        </View>
+                    ))}
+                    {posts.length === 0 && <Text style={styles.emptyText}>No posts captured yet.</Text>}
+                </ScrollView>
+            </View>
+
             {/* Main Action */}
             <View style={styles.footer}>
                 <TouchableOpacity
@@ -124,6 +255,14 @@ export const DashboardScreen = () => {
                     ) : (
                         <Text style={styles.checkButtonText}>CHECK MY VIBE</Text>
                     )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.checkButton, { marginTop: 10, backgroundColor: '#333' }]}
+                    onPress={handleTestRAG}
+                    disabled={isChecking}
+                >
+                    <Text style={styles.checkButtonText}>TEST RAG (FAKE DATA)</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -240,5 +379,61 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: '900',
         letterSpacing: 1,
+    },
+    postsContainer: {
+        marginTop: 20,
+        height: 250,
+    },
+    sectionTitle: {
+        color: '#666',
+        fontSize: 12,
+        marginBottom: 8,
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+    },
+    postsScroll: {
+        flex: 1,
+        backgroundColor: '#000',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#333',
+        padding: 10,
+    },
+    postCard: {
+        backgroundColor: '#18181b',
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 10,
+        borderLeftWidth: 3,
+        borderLeftColor: THEME.primary,
+    },
+    postHeader: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 14,
+        marginBottom: 4,
+    },
+    platformTag: {
+        color: THEME.magic,
+    },
+    postCaption: {
+        color: '#ccc',
+        fontSize: 12,
+        marginBottom: 6,
+    },
+    postMeta: {
+        color: '#666',
+        fontSize: 10,
+    },
+    debugText: {
+        color: '#444',
+        fontSize: 10,
+        marginTop: 4,
+        fontFamily: 'monospace',
+    },
+    emptyText: {
+        color: '#666',
+        textAlign: 'center',
+        marginTop: 20,
     },
 });

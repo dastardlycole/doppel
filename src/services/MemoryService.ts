@@ -11,6 +11,17 @@ export interface Observation {
     packageName: string;
 }
 
+export interface Post {
+    id: string;             // Unique ID (hash of content)
+    platform: 'instagram';  // Hardcoded for now
+    screenType: 'feed_post' | 'comment_thread' | 'unknown';
+    accountName: string | null;
+    caption: string | null;
+    likes?: string;
+    timestamp: number;
+    rawScreenText: string;
+}
+
 class MemoryService {
     constructor() {
         this.init();
@@ -25,6 +36,19 @@ class MemoryService {
           embedding TEXT NOT NULL, -- Storing as JSON string for simplicity in JS
           timestamp REAL NOT NULL,
           package_name TEXT NOT NULL
+        );
+      `);
+
+            db.execute(`
+        CREATE TABLE IF NOT EXISTS posts (
+          id TEXT PRIMARY KEY,
+          platform TEXT NOT NULL,
+          screen_type TEXT NOT NULL,
+          account_name TEXT,
+          caption TEXT,
+          likes TEXT,
+          timestamp REAL NOT NULL,
+          raw_screen_text TEXT
         );
       `);
             console.log('MemoryService initialized');
@@ -48,9 +72,34 @@ class MemoryService {
         }
     }
 
+    async savePost(post: Post) {
+        try {
+            // Upsert: Insert or Replace if ID exists
+            // We update timestamp to show it was viewed again
+            await db.execute(
+                `INSERT OR REPLACE INTO posts (id, platform, screen_type, account_name, caption, likes, timestamp, raw_screen_text)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    post.id,
+                    post.platform,
+                    post.screenType,
+                    post.accountName,
+                    post.caption,
+                    post.likes || null,
+                    post.timestamp,
+                    post.rawScreenText
+                ]
+            );
+            console.log(`Post saved/updated: ${post.id}`);
+        } catch (e) {
+            console.error('Failed to save post', e);
+        }
+    }
+
     async clearMemory() {
         try {
             await db.execute('DELETE FROM observations');
+            await db.execute('DELETE FROM posts');
             console.log('Memory cleared');
         } catch (e) {
             console.error('Failed to clear memory', e);
@@ -69,6 +118,19 @@ class MemoryService {
             return results.rows?.map(this.mapRowToObservation) || [];
         } catch (e) {
             console.error('Failed to get recent observations', e);
+            return [];
+        }
+    }
+
+    async getRecentPosts(limit: number = 50): Promise<Post[]> {
+        try {
+            const results = await db.execute(
+                'SELECT * FROM posts ORDER BY timestamp DESC LIMIT ?',
+                [limit]
+            );
+            return results.rows?.map(this.mapRowToPost) || [];
+        } catch (e) {
+            console.error('Failed to get recent posts', e);
             return [];
         }
     }
@@ -101,6 +163,19 @@ class MemoryService {
             embedding: JSON.parse(row.embedding),
             timestamp: row.timestamp,
             packageName: row.package_name
+        };
+    }
+
+    private mapRowToPost(row: any): Post {
+        return {
+            id: row.id,
+            platform: row.platform,
+            screenType: row.screen_type,
+            accountName: row.account_name,
+            caption: row.caption,
+            likes: row.likes,
+            timestamp: row.timestamp,
+            rawScreenText: row.raw_screen_text
         };
     }
 

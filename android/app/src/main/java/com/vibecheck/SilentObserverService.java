@@ -15,39 +15,83 @@ public class SilentObserverService extends AccessibilityService {
 
     private long lastEventTime = 0;
     private String lastContent = "";
-    private static final long THROTTLE_MS = 2000;
+    private static final long THROTTLE_MS = 500;
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null)
             return;
 
+        // Only care about scroll or content changes that might indicate a new post
+        int eventType = event.getEventType();
+        if (eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED &&
+                eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+                eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            return;
+        }
+
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastEventTime < THROTTLE_MS)
             return;
 
-        AccessibilityNodeInfo source = event.getSource();
-        if (source == null)
+        // Get the root of the active window to see EVERYTHING
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null)
             return;
 
-        // Simple text extraction
-        // In a real app, we would traverse the tree recursively
-        CharSequence text = source.getText();
-        if (text != null && text.length() > 0) {
-            String content = text.toString();
+        String packageName = root.getPackageName() != null ? root.getPackageName().toString() : "unknown";
 
-            // Filter duplicates
-            if (content.equals(lastContent))
-                return;
+        // Filter out system UI and sensitive apps (basic list)
+        if (isSafeApp(packageName)) {
+            StringBuilder screenText = new StringBuilder();
+            traverseNode(root, screenText);
 
-            String packageName = event.getPackageName() != null ? event.getPackageName().toString() : "unknown";
+            String content = screenText.toString().trim();
 
-            // Filter out system UI and sensitive apps (basic list)
-            if (isSafeApp(packageName)) {
-                Log.d(TAG, "Observed: " + content + " in " + packageName);
+            // Filter duplicates and empty content
+            if (content.length() > 0 && !content.equals(lastContent)) {
+                Log.d(TAG, "Observed Screen (" + content.length() + " chars) in " + packageName);
                 sendEventToRN(content, packageName);
                 lastEventTime = currentTime;
                 lastContent = content;
+            }
+        }
+
+        // Always recycle the root node to avoid leaks
+        root.recycle();
+    }
+
+    private void traverseNode(AccessibilityNodeInfo node, StringBuilder sb) {
+        if (node == null)
+            return;
+
+        // Skip invisible nodes
+        if (!node.isVisibleToUser()) {
+            return;
+        }
+
+        // Append text if this node has it
+        if (node.getText() != null && node.getText().length() > 0) {
+            sb.append(node.getText()).append("\n");
+        }
+
+        // Also capture content description (vital for image-based buttons/usernames)
+        if (node.getContentDescription() != null && node.getContentDescription().length() > 0) {
+            // Avoid duplicates if text and contentDescription are identical
+            CharSequence text = node.getText();
+            CharSequence desc = node.getContentDescription();
+            if (text == null || !text.toString().equals(desc.toString())) {
+                sb.append(desc).append("\n");
+            }
+        }
+
+        // Recursively visit children
+        int childCount = node.getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                traverseNode(child, sb);
+                child.recycle(); // Recycle child after use
             }
         }
     }
@@ -55,11 +99,7 @@ public class SilentObserverService extends AccessibilityService {
     private boolean isSafeApp(String packageName) {
         // Allow social media, disallow banking/system
         // This is a hackathon whitelist approach for safety
-        return packageName.contains("instagram") ||
-                packageName.contains("tiktok") ||
-                packageName.contains("youtube") ||
-                packageName.contains("twitter") ||
-                packageName.contains("reddit");
+        return packageName.contains("instagram"); // Focused on Instagram as per plan
     }
 
     private void sendEventToRN(String text, String packageName) {
