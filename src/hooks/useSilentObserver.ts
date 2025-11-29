@@ -36,7 +36,7 @@ export const useSilentObserver = () => {
     useEffect(() => {
         const subscription = DeviceEventEmitter.addListener('SilentObserverEvent', async (event) => {
             const { text, package: packageName } = event;
-            console.log('New Observation:', text.substring(0, 100) + '...');
+            console.log(`New Observation (Length: ${text.length}):`, text.substring(0, 100) + '...');
             setLastObservation(text);
 
             // Debounce AI processing

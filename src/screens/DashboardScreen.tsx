@@ -33,7 +33,7 @@ export const DashboardScreen = () => {
 
     useEffect(() => {
         if (lastObservation) {
-            setLogs(prev => [`[OBSERVED] ${lastObservation.substring(0, 40)}...`, ...prev].slice(0, 10));
+            setLogs(prev => [`[OBSERVED] (${lastObservation.length} chars) ${lastObservation.substring(0, 150)}...`, ...prev].slice(0, 10));
         }
     }, [lastObservation]);
 

@@ -48,6 +48,15 @@ class MemoryService {
         }
     }
 
+    async clearMemory() {
+        try {
+            await db.execute('DELETE FROM observations');
+            console.log('Memory cleared');
+        } catch (e) {
+            console.error('Failed to clear memory', e);
+        }
+    }
+
     async getRecentObservations(limit: number = 50): Promise<Observation[]> {
         try {
             // Get last 24 hours
